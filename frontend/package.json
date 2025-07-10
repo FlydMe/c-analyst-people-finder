@@ -39,6 +39,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@types/jest": "^30.0.0",
-    "jest": "^27.5.1"
+    "jest": "^27.5.1",
+    "terser-webpack-plugin": "^5.3.14"
   }
 }
