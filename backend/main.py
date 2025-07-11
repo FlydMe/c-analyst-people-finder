@@ -26,7 +26,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://c-analyst-people-finder-1.onrender.com"],  # or ["*"] for testing
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://localhost:3001",  # React dev server
+        "https://c-analyst-people-finder-1.onrender.com"  # Production frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -110,7 +114,7 @@ class QueryRequest(BaseModel):
 
 def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     """Generate Google X-ray search queries using advanced prompt engineering and ChatGPT"""
-    # --- New: Encode quit window as after:/before: in every query ---
+    # --- Enhanced date range encoding ---
     def get_after_before_from_quit_window(quit_window: str = ""):
         now = datetime.utcnow().date()
         if not quit_window:
@@ -128,43 +132,52 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
 
     company_variants = enhance_company_variants(params.company)
     after, before = get_after_before_from_quit_window(params.quitWindow or "")
-    # --- Use only the elite QueryGen prompt, no example or commentary ---
+    
+    # Enhanced system prompt with better role matching and quit detection
     system_prompt = (
-        "You are QueryGen, an elite AI assistant for venture capital analysts specializing in talent intelligence. Your mission is to generate exactly 7 highly optimized, diverse Google X-ray search queries to identify promising ex-employees who left a target company within a specified timeframe.\n\n"
+        "You are QueryGen Elite, an advanced AI assistant for venture capital talent intelligence. Generate exactly 10 highly optimized Google X-ray queries to find ex-employees who left a target company.\n\n"
         "QUERY GENERATION STRATEGY:\n"
         "1. **Primary Focus**: LinkedIn profiles (`site:linkedin.com/in`)\n"
-        "2. **Boolean Logic**: Use advanced operators (AND, OR, quotes, -) for precision\n"
-        "3. **Quit Language Variations**: Include multiple quit indicators:\n"
-        "   - \"ex-Company\", \"ex Company\", \"exCompany\"\n"
-        "   - \"formerly at Company\", \"previously at Company\"\n"
-        "   - \"left Company\", \"departed Company\", \"quit Company\"\n"
-        "   - \"resigned from Company\", \"no longer at Company\"\n"
+        "2. **Advanced Boolean Logic**: Use sophisticated operators for precision\n"
+        "3. **Enhanced Quit Language**: Multiple quit indicators with variations:\n"
+        "   - \"ex-Company\", \"ex Company\", \"exCompany\", \"former Company\"\n"
+        "   - \"formerly at Company\", \"previously at Company\", \"past Company\"\n"
+        "   - \"left Company\", \"departed Company\", \"quit Company\", \"resigned from Company\"\n"
+        "   - \"no longer at Company\", \"ended at Company\", \"retired from Company\"\n"
         "   - \"until [date]\", \"left in [date]\", \"ex-Company until [date]\"\n"
-        "4. **Role Variations**: Include different role phrasings:\n"
+        "   - \"stepped down from Company\", \"moved on from Company\"\n"
+        "4. **Smart Role Variations**: Include comprehensive role phrasings:\n"
         "   - Exact roles from input\n"
-        "   - Seniority + role combinations\n"
-        "   - Common variations (\"Software Engineer\" vs \"SDE\" vs \"Developer\")\n"
-        "5. **Geographic Targeting**: Add location filters if specified\n"
-        "6. **Keyword Integration**: Seamlessly integrate include/exclude keywords\n"
-        "7. **Exclusion Filters**: Always exclude \"intern\", \"junior\", \"freelancer\", \"contractor\"\n\n"
-        "QUERY STRUCTURE PATTERNS:\n"
-        "- Pattern 1: `site:linkedin.com/in \"[Role]\" AND (\"ex-Company\" OR \"left Company\") AND (\"[keywords]\")`\n"
-        "- Pattern 2: `site:linkedin.com/in \"[Seniority] [Role]\" AND \"formerly at Company\" AND \"[location]\"`\n"
-        "- Pattern 3: `site:linkedin.com/in \"[Role]\" AND (\"quit Company\" OR \"resigned from Company\") AND \"[keywords]\"`\n"
+        "   - Seniority + role combinations (Senior, Lead, Principal, Staff, Director)\n"
+        "   - Common industry variations (\"Software Engineer\" vs \"SDE\" vs \"Developer\" vs \"Programmer\")\n"
+        "   - Role abbreviations (\"PM\" for Product Manager, \"EM\" for Engineering Manager)\n"
+        "   - Cross-functional roles (\"Tech Lead\", \"Architect\", \"Specialist\")\n"
+        "5. **Geographic Targeting**: Smart location filters\n"
+        "6. **Keyword Integration**: Seamless include/exclude keyword integration\n"
+        "7. **Exclusion Filters**: Always exclude \"intern\", \"junior\", \"freelancer\", \"contractor\", \"student\"\n"
+        "8. **Recency Focus**: Prioritize recent departures\n\n"
+        "ENHANCED QUERY PATTERNS:\n"
+        "- Pattern 1: `site:linkedin.com/in \"[Role]\" AND (\"ex-Company\" OR \"left Company\" OR \"formerly at Company\") AND (\"[keywords]\")`\n"
+        "- Pattern 2: `site:linkedin.com/in \"[Seniority] [Role]\" AND \"ex-Company\" AND \"[location]\"`\n"
+        "- Pattern 3: `site:linkedin.com/in \"[Role]\" AND (\"quit Company\" OR \"resigned from Company\" OR \"departed Company\") AND \"[keywords]\"`\n"
         "- Pattern 4: `site:linkedin.com/in \"[Role]\" AND \"ex-Company\" AND \"until [year]\"`\n"
-        "- Pattern 5: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"left\" OR \"departed\") AND \"[keywords]\"`\n"
-        "- Pattern 6: `site:linkedin.com/in \"[Seniority]\" AND \"Company\" AND (\"ex-\" OR \"former\") AND \"[location]\"`\n"
-        "- Pattern 7: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"no longer\" OR \"previously\") AND \"[keywords]\"`\n\n"
-        "INPUT FIELDS (company_variants is a list of all real variants):\n"
+        "- Pattern 5: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"left\" OR \"departed\" OR \"moved on\") AND \"[keywords]\"`\n"
+        "- Pattern 6: `site:linkedin.com/in \"[Seniority]\" AND \"Company\" AND (\"ex-\" OR \"former\" OR \"past\") AND \"[location]\"`\n"
+        "- Pattern 7: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"no longer\" OR \"previously\" OR \"ended\") AND \"[keywords]\"`\n"
+        "- Pattern 8: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"stepped down\" OR \"retired from\")`\n"
+        "- Pattern 9: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"joined [new company]\" OR \"now at [new company]\")`\n"
+        "- Pattern 10: `site:linkedin.com/in \"[Role]\" AND \"Company\" AND (\"transitioned\" OR \"moved on\") AND \"[keywords]\"`\n\n"
+        "INPUT FIELDS:\n"
         "- `company_variants`: List of company name variants\n"
         "- `roles`: Array of job titles to search for\n"
-        "- `seniority`: Seniority level (Senior, Lead, Principal, etc.)\n"
+        "- `seniority`: Seniority level (Senior, Lead, Principal, Staff, Director, etc.)\n"
         "- `quit_window`: Time window (e.g., \"6 months\", \"1 year\")\n"
         "- `geography`: Location focus\n"
         "- `include_keywords`: Skills/topics to include\n"
         "- `exclude_keywords`: Terms to exclude\n\n"
-        "OUTPUT: Exactly 7 one-line Google X-ray queries—no commentary, no numbering, no formatting—just the raw query strings ready for Google search."
+        "OUTPUT: Exactly 10 one-line Google X-ray queries—no commentary, no numbering, no formatting—just the raw query strings ready for Google search."
     )
+    
     user_json = {
         "company_variants": company_variants,
         "roles": params.roles,
@@ -177,6 +190,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     }
     user_prompt = json.dumps(user_json, ensure_ascii=False)
     prompt = user_prompt
+    
     if OPENAI_API_KEY:
         try:
             response = openai.ChatCompletion.create(
@@ -186,7 +200,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.0,
-                max_tokens=1000
+                max_tokens=1500
             )
             content = None
             if isinstance(response, dict) and "choices" in response and isinstance(response["choices"], list):
@@ -195,45 +209,74 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
                     content = first_choice["message"]["content"].strip()
             if not content:
                 raise ValueError("No content from OpenAI API")
-            queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))[:7]
+            queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))[:10]
             if after and before:
                 queries = [f"{q} after:{after} before:{before}" for q in queries]
-            if len(queries) < 7:
+            if len(queries) < 10:
                 raise ValueError("Too few queries generated")
             return queries, prompt
         except Exception as e:
             print(f"Error generating queries: {e}")
-            # Fallback: robust hand-crafted queries (7 only)
+            # Enhanced fallback queries
             company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
+            roles_or = " OR ".join([f'\"{role}\"' for role in params.roles]) if params.roles else f'\"{params.seniority}\"'
+            keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
+            exclude_terms = " OR ".join([f'\"{kw}\"' for kw in params.excludeKeywords]) if params.excludeKeywords else ""
+            
             fallback = [
-                f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed") AND ("{params.roles}" OR "{params.seniority}")',
-                f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ("{params.roles}" OR "{params.seniority}")',
-                f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead") AND ("quit" OR "resigned")',
-                f'site:linkedin.com/in ({company_or}) AND ("Backend Developer" OR "Engineer") AND ("recently at" OR "left in 2024")',
-                f'site:linkedin.com/in ({company_or}) AND ("SDE" OR "Senior Developer") AND ("resigned from" OR "quit")',
-                f'site:linkedin.com/in ({company_or}) AND ("Principal Engineer" OR "Tech Lead") AND ("ex" OR "left")',
-                f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "Developer") AND ("formerly at")',
+                f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed" OR "formerly at") AND ({roles_or})',
+                f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ({roles_or})',
+                f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead" OR "Principal" OR "Staff") AND ("quit" OR "resigned" OR "stepped down")',
+                f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "SDE" OR "Developer" OR "Programmer") AND ("recently at" OR "left in 2024")',
+                f'site:linkedin.com/in ({company_or}) AND ("Product Manager" OR "PM" OR "Engineering Manager" OR "EM") AND ("resigned from" OR "quit" OR "moved on")',
+                f'site:linkedin.com/in ({company_or}) AND ("Tech Lead" OR "Architect" OR "Principal Engineer") AND ("ex" OR "left" OR "departed")',
+                f'site:linkedin.com/in ({company_or}) AND ("Data Scientist" OR "ML Engineer" OR "AI Engineer") AND ("formerly at" OR "past")',
+                f'site:linkedin.com/in ({company_or}) AND ("Designer" OR "UX Designer" OR "UI Designer") AND ("no longer at" OR "ended at")',
+                f'site:linkedin.com/in ({company_or}) AND ("Director" OR "VP" OR "Head of") AND ("retired from" OR "stepped down from")',
+                f'site:linkedin.com/in ({company_or}) AND ("joined" OR "now at" OR "started at") AND ("{params.geography}" OR "{keywords_or}")',
             ]
+            
+            # Add keyword filters if specified
+            if keywords_or:
+                fallback = [f"{q} AND ({keywords_or})" for q in fallback]
+            if exclude_terms:
+                fallback = [f"{q} AND -({exclude_terms})" for q in fallback]
+                
             if after and before:
                 fallback = [f"{q} after:{after} before:{before}" for q in fallback]
-            return fallback[:7], prompt
-    # Fallback: return robust hand-crafted queries (7 only)
+            return fallback[:10], prompt
+    
+    # Final fallback: return enhanced hand-crafted queries
     company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
+    roles_or = " OR ".join([f'\"{role}\"' for role in params.roles]) if params.roles else f'\"{params.seniority}\"'
+    keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
+    exclude_terms = " OR ".join([f'\"{kw}\"' for kw in params.excludeKeywords]) if params.excludeKeywords else ""
+    
     fallback = [
-        f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed") AND ("{params.roles}" OR "{params.seniority}")',
-        f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ("{params.roles}" OR "{params.seniority}")',
-        f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead") AND ("quit" OR "resigned")',
-        f'site:linkedin.com/in ({company_or}) AND ("Backend Developer" OR "Engineer") AND ("recently at" OR "left in 2024")',
-        f'site:linkedin.com/in ({company_or}) AND ("SDE" OR "Senior Developer") AND ("resigned from" OR "quit")',
-        f'site:linkedin.com/in ({company_or}) AND ("Principal Engineer" OR "Tech Lead") AND ("ex" OR "left")',
-        f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "Developer") AND ("formerly at")',
+        f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed" OR "formerly at") AND ({roles_or})',
+        f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ({roles_or})',
+        f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead" OR "Principal" OR "Staff") AND ("quit" OR "resigned" OR "stepped down")',
+        f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "SDE" OR "Developer" OR "Programmer") AND ("recently at" OR "left in 2024")',
+        f'site:linkedin.com/in ({company_or}) AND ("Product Manager" OR "PM" OR "Engineering Manager" OR "EM") AND ("resigned from" OR "quit" OR "moved on")',
+        f'site:linkedin.com/in ({company_or}) AND ("Tech Lead" OR "Architect" OR "Principal Engineer") AND ("ex" OR "left" OR "departed")',
+        f'site:linkedin.com/in ({company_or}) AND ("Data Scientist" OR "ML Engineer" OR "AI Engineer") AND ("formerly at" OR "past")',
+        f'site:linkedin.com/in ({company_or}) AND ("Designer" OR "UX Designer" OR "UI Designer") AND ("no longer at" OR "ended at")',
+        f'site:linkedin.com/in ({company_or}) AND ("Director" OR "VP" OR "Head of") AND ("retired from" OR "stepped down from")',
+        f'site:linkedin.com/in ({company_or}) AND ("joined" OR "now at" OR "started at") AND ("{params.geography}" OR "{keywords_or}")',
     ]
+    
+    # Add keyword filters if specified
+    if keywords_or:
+        fallback = [f"{q} AND ({keywords_or})" for q in fallback]
+    if exclude_terms:
+        fallback = [f"{q} AND -({exclude_terms})" for q in fallback]
+        
     if after and before:
         fallback = [f"{q} after:{after} before:{before}" for q in fallback]
-    return fallback[:7], prompt
+    return fallback[:10], prompt
 
-def search_google_custom(query: str, num_results: int = 10, quit_window: str = "") -> List[dict]:
-    """Search using Google Custom Search API, with dateRestrict if quit_window is set. Uses in-memory cache to reduce rate limit hits."""
+def search_google_custom(query: str, num_results: int = 15, quit_window: str = "") -> List[dict]:
+    """Enhanced search using Google Custom Search API with more results and better filtering"""
     cache_key = f"{query}|{num_results}|{quit_window}"
     if cache_key in google_search_cache:
         return google_search_cache[cache_key]
@@ -245,7 +288,8 @@ def search_google_custom(query: str, num_results: int = 10, quit_window: str = "
             "key": GOOGLE_API_KEY,
             "cx": GOOGLE_SEARCH_ENGINE_ID,
             "q": query,
-            "num": num_results
+            "num": min(num_results, 10),  # Google CSE max is 10 per request
+            "sort": "date:r:20200101:20241231"  # Sort by date, recent first
         }
         # Add dateRestrict if quit_window is set
         if quit_window:
@@ -256,19 +300,30 @@ def search_google_custom(query: str, num_results: int = 10, quit_window: str = "
             elif "year" in quit_window:
                 num = int(''.join(filter(str.isdigit, quit_window)))
                 params["dateRestrict"] = f"y[{num}]"
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        results = []
-        for item in data.get("items", []):
-            results.append({
-                "title": item.get("title", ""),
-                "link": item.get("link", ""),
-                "snippet": item.get("snippet", ""),
-                "displayLink": item.get("displayLink", "")
-            })
-        google_search_cache[cache_key] = results
-        return results
+        
+        all_results = []
+        # Make multiple requests to get more results
+        for start_index in range(1, min(num_results + 1, 21), 10):
+            params["start"] = start_index
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            for item in data.get("items", []):
+                all_results.append({
+                    "title": item.get("title", ""),
+                    "link": item.get("link", ""),
+                    "snippet": item.get("snippet", ""),
+                    "displayLink": item.get("displayLink", ""),
+                    "pagemap": item.get("pagemap", {})
+                })
+            
+            # Break if we got fewer results than requested (end of results)
+            if len(data.get("items", [])) < 10:
+                break
+        
+        google_search_cache[cache_key] = all_results
+        return all_results
     except Exception as e:
         print(f"Error searching Google: {e}")
         return []
@@ -306,50 +361,104 @@ def mock_search_results(query: str) -> List[dict]:
     return []
 
 def calculate_relevance_score(result: dict, search_params: SearchParams, query: str) -> float:
-    """Calculate relevance score for a search result"""
+    """Calculate enhanced relevance score for a search result"""
     score = 5.0  # Base score
     
     title = result.get("title", "").lower()
     snippet = result.get("snippet", "").lower()
     content = f"{title} {snippet}"
     
-    # Company mention bonus
-    if search_params.company.lower() in content:
-        score += 2.0
+    # Company mention bonus (enhanced)
+    company_lower = search_params.company.lower()
+    if company_lower in content:
+        score += 3.0
+        # Bonus for exact company name match
+        if f"ex-{company_lower}" in content or f"former {company_lower}" in content:
+            score += 2.0
     
-    # Role relevance
+    # Enhanced role relevance with fuzzy matching
     if search_params.roles:
         roles = [role.strip().lower() for role in search_params.roles]
-        role_matches = sum(1 for role in roles if role in content)
-        score += role_matches * 1.5
+        role_matches = 0
+        for role in roles:
+            # Exact match
+            if role in content:
+                role_matches += 2.0
+            # Partial match (for abbreviations)
+            elif any(word in content for word in role.split()):
+                role_matches += 1.0
+        score += role_matches
     
-    # Seniority indicators
-    seniority_terms = ["senior", "staff", "principal", "lead", "manager", "director"]
+    # Enhanced seniority indicators
+    seniority_terms = ["senior", "staff", "principal", "lead", "manager", "director", "vp", "head of", "chief"]
     seniority_matches = sum(1 for term in seniority_terms if term in content)
-    score += seniority_matches * 0.5
+    score += seniority_matches * 1.0
     
-    # Recent departure indicators
-    departure_terms = ["senior", "staff", "principal", "lead", "manager", "director"]
-    departure_matches = sum(1 for term in departure_terms if term in content)
-    score += departure_matches * 1.0
+    # Enhanced departure indicators with confidence scoring
+    departure_indicators = {
+        "ex-": 3.0,
+        "former": 2.5,
+        "left": 2.0,
+        "departed": 2.0,
+        "quit": 2.5,
+        "resigned": 2.5,
+        "no longer": 2.0,
+        "previously": 1.5,
+        "formerly": 2.0,
+        "stepped down": 2.0,
+        "retired": 1.5,
+        "moved on": 1.5,
+        "transitioned": 1.5
+    }
     
-    # Include keywords bonus
+    for indicator, weight in departure_indicators.items():
+        if indicator in content:
+            score += weight
+            break  # Only count the strongest indicator
+    
+    # Enhanced keyword matching
     if search_params.includeKeywords:
         include_terms = [term.strip().lower() for term in search_params.includeKeywords]
         include_matches = sum(1 for term in include_terms if term in content)
-        score += include_matches * 0.8
+        score += include_matches * 1.2
     
-    # Exclude keywords penalty
+    # Enhanced exclude keywords penalty
     if search_params.excludeKeywords:
         exclude_terms = [term.strip().lower() for term in search_params.excludeKeywords]
         exclude_matches = sum(1 for term in exclude_terms if term in content)
-        score -= exclude_matches * 1.0
+        score -= exclude_matches * 2.0  # Stronger penalty
     
-    # Domain authority bonus
-    high_authority_domains = ["linkedin.com", "twitter.com", "x.com", "techcrunch.com", "medium.com", "github.com"]
+    # Enhanced domain authority bonus
+    domain_authority = {
+        "linkedin.com": 4.0,
+        "twitter.com": 2.5,
+        "x.com": 2.5,
+        "github.com": 2.0,
+        "medium.com": 1.5,
+        "techcrunch.com": 1.0,
+        "angel.co": 1.5,
+        "wellfound.com": 1.5
+    }
+    
     display_link = result.get("displayLink", "").lower()
-    if any(domain in display_link for domain in high_authority_domains):
-        score += 0.5
+    for domain, bonus in domain_authority.items():
+        if domain in display_link:
+            score += bonus
+            break
+    
+    # Recency bonus (if date is recent)
+    date_match = re.search(r'20(2[3-4]|1[9-9])', content)  # 2019-2024
+    if date_match:
+        year = int(date_match.group())
+        if year >= 2023:
+            score += 2.0
+        elif year >= 2021:
+            score += 1.0
+    
+    # Profile completeness bonus
+    if "linkedin.com/in/" in result.get("link", ""):
+        if len(snippet) > 200:  # Longer snippets often indicate more complete profiles
+            score += 1.0
     
     return max(0, min(10, score))  # Clamp between 0-10
 
@@ -392,86 +501,107 @@ def extract_all_end_dates(text: str):
     return found
 
 def extract_all_transitions(text: str, company: str):
+    """Enhanced transition extraction with better pattern matching and date parsing"""
     transitions = []
-    # Improved: Find all experience blocks for the company and extract end dates from date ranges
-    exp_block_pattern = re.compile(
-        rf"{re.escape(company)}.*?(?:\n|\r|\s)+.*?(\w{{3,9}} \d{{4}})\s*[–-]\s*(\w{{3,9}} \d{{4}}|Present|present|Current|current|\d{{4}})",
-        re.IGNORECASE | re.DOTALL
-    )
-    for match in exp_block_pattern.finditer(text):
-        start_str, end_str = match.group(1), match.group(2)
-        # Only consider if end_str is not 'Present' or 'Current'
-        if end_str.lower() not in ['present', 'current']:
-            try:
-                dt = parse_end_date(end_str)
-                if dt:
-                    transitions.append({"type": "experience_end", "value": end_str, "full": match.group(0), "date": dt})
-            except Exception:
-                continue
-    # Fallback to original logic if no matches
-    if not transitions:
-        # Patterns for quit/transition events (expanded)
-        patterns = [
-            # Date ranges (LinkedIn, GitHub, etc)
-            (r'(\d{4})\s*[–-]\s*(\d{4})', 'range'),
-            # Explicit quit/left
-            (rf'left {company} in (\w+ \d{{4}})', 'left_in_month_year'),
-            (rf'left {company} in (\d{{4}})', 'left_in_year'),
-            (rf'left {company}', 'left'),
-            (rf'former {company}', 'former'),
-            # Robust ex-company patterns (dash, space, quotes, case-insensitive)
-            (rf'ex[-\s\"\']*{company}', 'ex'),
-            (rf'ex[-\s\"\']*{company}', 'ex'),
-            (rf'previously at {company}', 'previously'),
-            (rf'departed {company}', 'departed'),
-            (rf'quit {company}', 'quit'),
-            (rf'resigned from {company}', 'resigned'),
-            (rf'no longer at {company}', 'no_longer'),
-            (rf'ended at {company}', 'ended'),
-            (rf'retired from {company}', 'retired'),
-            (rf'stepped down from {company}', 'stepped_down'),
-            (rf'last day at {company}', 'last_day'),
-            (rf'moved on from {company}', 'moved_on'),
-            (rf'transitioned from {company}', 'transitioned'),
-            (rf'leaving {company}', 'leaving'),
-            (rf'why I left {company}', 'why_left'),
-            (rf'until (\w+ \d{{4}})', 'until_month_year'),
-            (rf'until (\d{{4}})', 'until_year'),
-            # New company join
-            (r'joined ([A-Za-z0-9&.,\- ]+) in (\w+ \d{4})', 'joined_new_month_year'),
-            (r'joined ([A-Za-z0-9&.,\- ]+) in (\d{4})', 'joined_new_year'),
-            (r'started at ([A-Za-z0-9&.,\- ]+) in (\w+ \d{4})', 'started_new_month_year'),
-            (r'started at ([A-Za-z0-9&.,\- ]+) in (\d{4})', 'started_new_year'),
-            (r'now at ([A-Za-z0-9&.,\- ]+)', 'now_at'),
-            # Explicitly still at company
-            (rf'current at {company}', 'current'),
-            (rf'present at {company}', 'present'),
-            (rf'still at {company}', 'still'),
-            # Fallback: any month-year or year
-            (r'(\w+ \d{4})', 'month_year'),
-            (r'(\d{4})', 'year'),
-            # --- Education section patterns ---
-            (r'graduated in (\w+ \d{4})', 'education_graduation_month_year'),
-            (r'graduated in (\d{4})', 'education_graduation_year'),
-            (r'education.*(\d{4})\s*[–-]\s*(\d{4})', 'education_range'),
-            (r'education.*until (\w+ \d{4})', 'education_until_month_year'),
-            (r'education.*until (\d{4})', 'education_until_year'),
-            (r'education.*(\w+ \d{4})', 'education_month_year'),
-            (r'education.*(\d{4})', 'education_year'),
-            # --- Experience section patterns ---
-            (r'experience.*(\d{4})\s*[–-]\s*(\d{4})', 'experience_range'),
-            (r'experience.*until (\w+ \d{4})', 'experience_until_month_year'),
-            (r'experience.*until (\d{4})', 'experience_until_year'),
-            (r'experience.*(\w+ \d{4})', 'experience_month_year'),
-            (r'experience.*(\d{4})', 'experience_year'),
-        ]
-        for pattern, label in patterns:
-            for match in re.findall(pattern, text, re.IGNORECASE):
-                if isinstance(match, tuple):
-                    transitions.append({'type': label, 'value': match[-1], 'full': match})
-                else:
-                    transitions.append({'type': label, 'value': match, 'full': match})
-    transitions.sort(key=lambda x: x.get("date", datetime.min), reverse=True)
+    
+    # Enhanced experience block pattern for LinkedIn-style date ranges
+    exp_block_patterns = [
+        # Standard LinkedIn format: "Company Name • Jan 2020 - Dec 2023"
+        re.compile(rf"{re.escape(company)}.*?(\w{{3,9}} \d{{4}})\s*[–-]\s*(\w{{3,9}} \d{{4}}|Present|present|Current|current|\d{{4}})", re.IGNORECASE | re.DOTALL),
+        # Alternative format: "Company Name • 2020 - 2023"
+        re.compile(rf"{re.escape(company)}.*?(\d{{4}})\s*[–-]\s*(\d{{4}}|Present|present|Current|current)", re.IGNORECASE | re.DOTALL),
+        # With bullet points: "• Company Name • Jan 2020 - Dec 2023"
+        re.compile(rf"•\s*{re.escape(company)}.*?(\w{{3,9}} \d{{4}})\s*[–-]\s*(\w{{3,9}} \d{{4}}|Present|present|Current|current|\d{{4}})", re.IGNORECASE | re.DOTALL),
+    ]
+    
+    for pattern in exp_block_patterns:
+        for match in pattern.finditer(text):
+            start_str, end_str = match.group(1), match.group(2)
+            # Only consider if end_str is not 'Present' or 'Current'
+            if end_str.lower() not in ['present', 'current']:
+                try:
+                    dt = parse_end_date(end_str)
+                    if dt:
+                        transitions.append({
+                            "type": "experience_end", 
+                            "value": end_str, 
+                            "full": match.group(0), 
+                            "date": dt,
+                            "confidence": "high"
+                        })
+                except Exception:
+                    continue
+    
+    # Enhanced quit/transition patterns with confidence scoring
+    quit_patterns = [
+        # High confidence patterns
+        (rf'left {company} in (\w+ \d{{4}})', 'left_in_month_year', 'high'),
+        (rf'left {company} in (\d{{4}})', 'left_in_year', 'high'),
+        (rf'quit {company} in (\w+ \d{{4}})', 'quit_in_month_year', 'high'),
+        (rf'quit {company} in (\d{{4}})', 'quit_in_year', 'high'),
+        (rf'resigned from {company} in (\w+ \d{{4}})', 'resigned_in_month_year', 'high'),
+        (rf'resigned from {company} in (\d{{4}})', 'resigned_in_year', 'high'),
+        (rf'stepped down from {company} in (\w+ \d{{4}})', 'stepped_down_in_month_year', 'high'),
+        (rf'stepped down from {company} in (\d{{4}})', 'stepped_down_in_year', 'high'),
+        
+        # Medium confidence patterns
+        (rf'ex[-\s\"\']*{company}', 'ex', 'medium'),
+        (rf'former {company}', 'former', 'medium'),
+        (rf'formerly at {company}', 'formerly', 'medium'),
+        (rf'previously at {company}', 'previously', 'medium'),
+        (rf'departed {company}', 'departed', 'medium'),
+        (rf'no longer at {company}', 'no_longer', 'medium'),
+        (rf'ended at {company}', 'ended', 'medium'),
+        (rf'retired from {company}', 'retired', 'medium'),
+        (rf'moved on from {company}', 'moved_on', 'medium'),
+        (rf'transitioned from {company}', 'transitioned', 'medium'),
+        
+        # Date-specific patterns
+        (rf'until (\w+ \d{{4}})', 'until_month_year', 'high'),
+        (rf'until (\d{{4}})', 'until_year', 'high'),
+        (rf'left in (\w+ \d{{4}})', 'left_in_month_year', 'high'),
+        (rf'left in (\d{{4}})', 'left_in_year', 'high'),
+        
+        # New company indicators (high confidence for quit inference)
+        (r'joined ([A-Za-z0-9&.,\- ]+) in (\w+ \d{4})', 'joined_new_month_year', 'high'),
+        (r'joined ([A-Za-z0-9&.,\- ]+) in (\d{4})', 'joined_new_year', 'high'),
+        (r'started at ([A-Za-z0-9&.,\- ]+) in (\w+ \d{4})', 'started_new_month_year', 'high'),
+        (r'started at ([A-Za-z0-9&.,\- ]+) in (\d{4})', 'started_new_year', 'high'),
+        (r'now at ([A-Za-z0-9&.,\- ]+)', 'now_at', 'medium'),
+        
+        # Low confidence patterns (fallbacks)
+        (rf'left {company}', 'left', 'low'),
+        (rf'quit {company}', 'quit', 'low'),
+        (rf'resigned from {company}', 'resigned', 'low'),
+        (r'(\w+ \d{4})', 'month_year', 'low'),
+        (r'(\d{4})', 'year', 'low'),
+    ]
+    
+    for pattern, label, confidence in quit_patterns:
+        for match in re.findall(pattern, text, re.IGNORECASE):
+            if isinstance(match, tuple):
+                value = match[-1]  # Take the last element for date
+                transitions.append({
+                    'type': label, 
+                    'value': value, 
+                    'full': match, 
+                    'confidence': confidence
+                })
+            else:
+                transitions.append({
+                    'type': label, 
+                    'value': match, 
+                    'full': match, 
+                    'confidence': confidence
+                })
+    
+    # Sort by confidence (high > medium > low) and then by date
+    confidence_order = {'high': 3, 'medium': 2, 'low': 1}
+    transitions.sort(key=lambda x: (
+        confidence_order.get(x.get('confidence', 'low'), 0),
+        x.get("date", datetime.min)
+    ), reverse=True)
+    
     return transitions
 
 # In infer_quit_date_from_transitions, if no explicit quit date is found, use most recent experience end date as proxy if present
@@ -573,53 +703,79 @@ def get_source_from_display_link(display_link: str):
     return "other"
 
 def chatgpt_rerank_and_extract(snippets: list[str], company: str, quit_window: str) -> Optional[list[dict]]:
-    """Call ChatGPT to extract entity info and score for each snippet. Returns a list of dicts. Multi-prompt fallback for robustness."""
+    """Enhanced ChatGPT extraction with better prompt engineering for higher quality results"""
     if not OPENAI_API_KEY or not snippets:
         return [{"score": 0.0, "name": None, "role": None, "quit_status": None, "quit_date": None, "company": None, "linkedin_url": None, "evidence_phrase": None, "confidence": 0, "rationale": "No LLM", "rawGoogleResult": True} for _ in snippets]
 
-    # Create structured prompts with clear JSON format
+    # Create structured prompts with enhanced extraction
     snippets_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(snippets)])
     
     prompts = [
-        # Prompt 1: Simple and reliable extraction
-        f"""Extract ex-employee information from each snippet. Return a JSON array with exactly {len(snippets)} objects.
+        # Enhanced Prompt 1: Comprehensive extraction with better scoring
+        f"""Extract detailed ex-employee information from each LinkedIn snippet. Return a JSON array with exactly {len(snippets)} objects.
 
 For each snippet, extract:
-- name: Full name if found, null if not
+- name: Full name (First Last) if found, null if not
 - role: Job title/role if found, null if not  
 - quit_status: "ex-employee" if they left, "current" if still there, "ambiguous" if unclear
-- quit_date: Date they left (YYYY-MM-DD), null if not found
+- quit_date: Date they left (YYYY-MM-DD format), null if not found
 - company: "{company}"
 - linkedin_url: LinkedIn URL if in snippet, null if not
 - evidence_phrase: Key phrase showing they left, null if not found
-- confidence: 0-10 score (10=definite, 7-9=strong, 4-6=moderate, 1-3=weak, 0=no evidence)
-- rationale: Brief explanation of reasoning
+- confidence: 0-10 score based on evidence strength:
+  * 10: Explicit "ex-{company}", "left {company} in [date]"
+  * 8-9: "former {company}", "quit {company}", "resigned from {company}"
+  * 6-7: "previously at {company}", "departed {company}"
+  * 4-5: "joined [new company]" after {company} mention
+  * 2-3: Ambiguous or weak indicators
+  * 0-1: No clear evidence
+- rationale: Brief explanation of confidence score and reasoning
 
-Look for: "ex-{company}", "former {company}", "left {company}", "quit {company}", "resigned from {company}", "until 2024", "joined [new company]"
+Key indicators to look for:
+- "ex-{company}", "former {company}", "left {company}"
+- "quit {company}", "resigned from {company}", "departed {company}"
+- "until [date]", "left in [date]", "ex-{company} until [date]"
+- "joined [new company]", "now at [new company]", "started at [new company]"
+- "stepped down from {company}", "retired from {company}"
 
 Return ONLY valid JSON array. No commentary.
 
 Snippets:
 {snippets_text}""",
 
-        # Prompt 2: Focus on quit detection
-        f"""For each snippet, determine if someone left {company} and extract info. Return JSON array with {len(snippets)} objects.
+        # Enhanced Prompt 2: Focus on quit detection with date extraction
+        f"""For each snippet, determine if someone left {company} and extract detailed info. Return JSON array with {len(snippets)} objects.
 
 Each object: {{"name": "...", "role": "...", "quit_status": "...", "quit_date": "...", "company": "{company}", "linkedin_url": "...", "evidence_phrase": "...", "confidence": 0-10, "rationale": "..."}}
 
-Key indicators: "ex-{company}", "former {company}", "left {company}", "quit {company}", "resigned from {company}", "until 2024", "joined [new company]"
+Confidence scoring:
+- 10: "ex-{company}" with date
+- 9: "left {company} in [date]" or "quit {company} in [date]"
+- 8: "former {company}" or "resigned from {company}"
+- 7: "previously at {company}" or "departed {company}"
+- 6: "joined [new company] in [date]" after {company}
+- 5: "now at [new company]" after {company}
+- 4: "stepped down" or "retired" from {company}
+- 3: Ambiguous departure indicators
+- 2: Weak or unclear evidence
+- 1: No clear departure evidence
+- 0: Still at {company} or no relevant info
 
-If uncertain, use null values and low confidence scores.
+Look for date patterns: "2024", "2023", "Dec 2023", "January 2024", "until 2024"
 
 Snippets:
 {snippets_text}""",
 
-        # Prompt 3: Minimal format
-        f"""Extract ex-employee data from snippets. Return JSON array with {len(snippets)} objects.
+        # Enhanced Prompt 3: Role and seniority focused
+        f"""Extract ex-employee data with focus on roles and seniority. Return JSON array with {len(snippets)} objects.
 
 Format: [{{"name": "...", "role": "...", "quit_status": "...", "quit_date": "...", "company": "{company}", "linkedin_url": "...", "evidence_phrase": "...", "confidence": 0-10, "rationale": "..."}}]
 
-Look for: "ex-{company}", "former {company}", "left {company}", "quit {company}"
+Role extraction: Look for job titles like "Software Engineer", "Product Manager", "Data Scientist", "Designer", "Engineering Manager", "Tech Lead", "Principal Engineer", "Director", "VP"
+
+Seniority indicators: "Senior", "Staff", "Principal", "Lead", "Manager", "Director", "VP", "Head of", "Chief"
+
+Quit indicators: "ex-{company}", "former {company}", "left {company}", "quit {company}", "resigned from {company}", "until [date]", "joined [new company]"
 
 Snippets:
 {snippets_text}"""
@@ -827,6 +983,7 @@ async def search_endpoint(request: QueryRequest):
             else:
                 search_results = []
             logger.info(f"Google results for query {i+1}: {len(search_results)}")
+            
             for result in search_results:
                 url = result.get("link", "")
                 if url in seen_urls or not url:
@@ -835,10 +992,39 @@ async def search_endpoint(request: QueryRequest):
                 snippet = result.get("snippet", "")
                 title = result.get("title", "")
                 display_link = result.get("displayLink", "")
-                # Filter out non-profile links (news, company pages, jobs, etc.)
-                if any(x in url for x in ["/jobs", "/careers", "/company", "/news", "/updates", "/about", "/press", "/blog", "/events", "/groups", "/pages", "/stories", "/media", "/services", "/solutions", "/products", "/webinar", "/podcast", "/award", "/recognition", "/announcement"]):
+                
+                # Enhanced filtering for better quality results
+                # Filter out non-profile links more aggressively
+                exclude_patterns = [
+                    "/jobs", "/careers", "/company", "/news", "/updates", "/about", "/press", 
+                    "/blog", "/events", "/groups", "/pages", "/stories", "/media", "/services", 
+                    "/solutions", "/products", "/webinar", "/podcast", "/award", "/recognition", 
+                    "/announcement", "/help", "/support", "/contact", "/legal", "/privacy", 
+                    "/terms", "/cookie", "/sitemap", "/robots", "/ads", "/advertising"
+                ]
+                
+                if any(pattern in url.lower() for pattern in exclude_patterns):
                     continue
-                if not ("linkedin.com/in/" in url or "twitter.com/" in url or "x.com/" in url or "github.com/" in url or "angel.co/" in url or "wellfound.com/" in url):
+                
+                # Enhanced profile link detection
+                profile_domains = [
+                    "linkedin.com/in/",
+                    "twitter.com/",
+                    "x.com/",
+                    "github.com/",
+                    "angel.co/",
+                    "wellfound.com/",
+                    "medium.com/@",
+                    "substack.com/@",
+                    "dev.to/",
+                    "hashnode.dev/",
+                    "personal-website.com",
+                    ".me/",
+                    ".io/"
+                ]
+                
+                is_profile = any(domain in url.lower() for domain in profile_domains)
+                if not is_profile:
                     continue
                 # --- Extract transitions, quit date, and confidence ---
                 transitions = extract_all_transitions(snippet + " " + title, request.searchParams.company)
@@ -889,12 +1075,37 @@ async def search_endpoint(request: QueryRequest):
                 }
                 score += source_boosts.get(source, 0.0)
                 relevance_score = score
-                # Only include results that mention the target company as a former employer
+                # Enhanced company mention validation with more comprehensive patterns
                 company = request.searchParams.company.lower()
-                if not any(
-                    kw in (snippet + " " + title).lower()
-                    for kw in [f"ex-{company}", f"ex {company}", f"formerly at {company}", f"left {company}", f"departed {company}", f"resigned from {company}", f"no longer at {company}", f"previously at {company}"]
-                ):
+                company_mention_patterns = [
+                    f"ex-{company}", f"ex {company}", f"former {company}",
+                    f"formerly at {company}", f"previously at {company}", f"past {company}",
+                    f"left {company}", f"departed {company}", f"quit {company}",
+                    f"resigned from {company}", f"no longer at {company}",
+                    f"ended at {company}", f"retired from {company}",
+                    f"stepped down from {company}", f"moved on from {company}",
+                    f"transitioned from {company}", f"leaving {company}",
+                    f"until {company}", f"at {company} until"
+                ]
+                
+                content_lower = (snippet + " " + title).lower()
+                has_company_mention = any(pattern in content_lower for pattern in company_mention_patterns)
+                
+                # Also check for company variants
+                company_variants = enhance_company_variants(request.searchParams.company)
+                for variant in company_variants:
+                    variant_lower = variant.lower()
+                    variant_patterns = [
+                        f"ex-{variant_lower}", f"ex {variant_lower}", f"former {variant_lower}",
+                        f"formerly at {variant_lower}", f"previously at {variant_lower}",
+                        f"left {variant_lower}", f"departed {variant_lower}",
+                        f"resigned from {variant_lower}", f"no longer at {variant_lower}"
+                    ]
+                    if any(pattern in content_lower for pattern in variant_patterns):
+                        has_company_mention = True
+                        break
+                
+                if not has_company_mention:
                     continue
                 # Extract name and quit date
                 name = extract_candidate_name(snippet, title)
@@ -955,20 +1166,67 @@ async def search_endpoint(request: QueryRequest):
                     r["llmRationale"] = llm.get("rationale") if llm.get("rationale") else None
                     r["llmRawGoogleResult"] = llm.get("rawGoogleResult", False)
                     r["rawGoogleResult"] = False
-        # --- Prioritize LinkedIn results at the top ---
-        all_results.sort(key=lambda x: (x["source"] != "linkedin", -x["relevanceScore"]))
+        # Enhanced result ranking and sorting
+        # Sort by multiple criteria: source priority, LLM confidence, relevance score, quit confidence
+        def sort_key(result):
+            # Source priority: LinkedIn > Twitter > GitHub > others
+            source_priority = {"linkedin": 4, "twitter": 3, "github": 2, "medium": 1}
+            source_score = source_priority.get(result.get("source", ""), 0)
+            
+            # LLM confidence (if available)
+            llm_confidence = result.get("llmConfidence", 0) or 0
+            
+            # Relevance score
+            relevance_score = result.get("relevanceScore", 0) or 0
+            
+            # Quit confidence
+            quit_confidence = result.get("quitConfidence", 0) or 0
+            
+            # Recency bonus (if quit date is recent)
+            recency_bonus = 0
+            quit_date = result.get("quitDate")
+            if quit_date:
+                try:
+                    date_obj = datetime.strptime(quit_date, "%Y-%m-%d")
+                    days_ago = (datetime.now() - date_obj).days
+                    if days_ago <= 365:  # Within 1 year
+                        recency_bonus = 2.0
+                    elif days_ago <= 730:  # Within 2 years
+                        recency_bonus = 1.0
+                except:
+                    pass
+            
+            return (
+                source_score,
+                llm_confidence,
+                relevance_score + recency_bonus,
+                quit_confidence
+            )
+        
+        # Sort results by the enhanced criteria
+        all_results.sort(key=sort_key, reverse=True)
+        
         # Always ensure all fields are present after sorting
         for i, result in enumerate(all_results):
             result["rank"] = i + 1
             for field in ["llmName", "llmRole", "llmQuitStatus", "llmQuitDate", "llmCompany", "llmLinkedinUrl", "llmEvidencePhrase", "llmConfidence", "llmRationale", "llmRawGoogleResult", "rawGoogleResult", "quitDate", "quitConfidence", "transitions", "source"]:
                 if field not in result:
                     result[field] = None
-        # In the /search endpoint, after LLM rerank, set 'relevanceScore' to the LLM confidence/score if present, else use the calculated score. Always include 'relevanceScore' in the result dict.
+        
+        # Enhanced relevance score calculation
         for r in all_results:
-            if r["llmConfidence"] is not None:
+            # Use LLM confidence if available, otherwise use calculated score
+            if r["llmConfidence"] is not None and r["llmConfidence"] > 0:
                 r["relevanceScore"] = r["llmConfidence"]
             else:
-                r["relevanceScore"] = r["llmRawGoogleResult"] if r["llmRawGoogleResult"] is not None else r["relevanceScore"]
+                r["relevanceScore"] = r.get("relevanceScore", 0) or 0
+            
+            # Add bonus for high confidence quit detection
+            if r.get("quitConfidence", 0) >= 3:
+                r["relevanceScore"] += 1.0
+            
+            # Ensure score is within bounds
+            r["relevanceScore"] = max(0, min(10, r["relevanceScore"]))
         # Convert all datetime objects to strings before returning
         return JSONResponse(content={"results": convert_datetimes(all_results)})
     except Exception as e:
