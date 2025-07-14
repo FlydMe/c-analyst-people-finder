@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import { useState } from "react"
 import { Search, Download, Copy, ExternalLink, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
 import "./App.css"
@@ -155,7 +156,7 @@ function App() {
   }
 
   // Helper to parse comma-separated input into array
-  const parseCommaList = (input: string) => input.split(",").map(s => s.trim()).filter(Boolean);
+  const parseCommaList = (input: string) => input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
 
   const handleGenerateQueries = async () => {
     if (!validateForm()) {
@@ -513,6 +514,7 @@ function App() {
                     <span className="text-amber-500 font-medium">(recommended)</span> fields help improve search
                     relevance.
                   </p>
+                  <p>Tip: You can use spaces, commas, or semicolons to separate multiple values in any field.</p>
                 </div>
               </div>
             </div>
