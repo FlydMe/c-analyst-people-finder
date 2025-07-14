@@ -154,7 +154,7 @@ function App() {
   const validateForm = () => {
     const errors: { [key: string]: boolean } = {}
     if (!searchParams.company.trim()) errors.company = true
-    if (!searchParams.roles.length) errors.roles = true
+    if (!rolesInput.trim()) errors.roles = true // Use rolesInput for validation
     if (!searchParams.quitWindow.trim()) errors.quitWindow = true
     setFormErrors(errors)
     return Object.keys(errors).length === 0
