@@ -112,9 +112,25 @@ class QueryRequest(BaseModel):
     searchParams: SearchParams
     sources: Optional[List[str]] = None  # New: for explicit override
 
+def get_role_variants(role):
+    """Return a list of common variants/synonyms for a given role."""
+    role = role.lower().strip()
+    variants = {
+        "engineer": ["engineer", "software engineer", "developer", "swe", "sde", "technical lead", "programmer", "coder", "dev"],
+        "product manager": ["product manager", "pm", "product owner", "product lead", "product director"],
+        "designer": ["designer", "ux designer", "ui designer", "product designer", "visual designer"],
+        "data scientist": ["data scientist", "ml engineer", "ai engineer", "machine learning engineer", "data analyst"],
+        "manager": ["manager", "engineering manager", "team lead", "lead", "supervisor"],
+        "director": ["director", "head of", "vp", "vice president", "chief", "cto", "ceo"],
+        # Add more as needed
+    }
+    for key, vals in variants.items():
+        if role in key or key in role:
+            return list(set(vals + [role]))
+    return [role]
+
 def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
-    """Generate Google X-ray search queries using advanced prompt engineering and ChatGPT"""
-    # --- Enhanced date range encoding ---
+    """Generate Google X-ray search queries using advanced prompt engineering and ChatGPT, with robust role expansion and always 7 queries."""
     def get_after_before_from_quit_window(quit_window: str = ""):
         now = datetime.utcnow().date()
         if not quit_window:
@@ -132,6 +148,14 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
 
     company_variants = enhance_company_variants(params.company)
     after, before = get_after_before_from_quit_window(params.quitWindow or "")
+
+    # --- Expand roles using synonym dictionary ---
+    expanded_roles = []
+    for role in (params.roles or []):
+        expanded_roles.extend(get_role_variants(role))
+    expanded_roles = list(set(expanded_roles))
+    if not expanded_roles and params.seniority:
+        expanded_roles = [params.seniority]
 
     # --- Updated QueryGen system prompt ---
     system_prompt = (
@@ -162,7 +186,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
 
     user_json = {
         "company": params.company,
-        "roles": ";".join(params.roles) if params.roles else "",
+        "roles": ";".join(expanded_roles) if expanded_roles else "",
         "seniority": params.seniority,
         "quit_window": params.quitWindow,
         "geography": params.geography,
@@ -172,6 +196,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     user_prompt = json.dumps(user_json, ensure_ascii=False)
     prompt = user_prompt
 
+    queries = []
     if OPENAI_API_KEY:
         try:
             response = openai.ChatCompletion.create(
@@ -190,67 +215,45 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
                     content = first_choice["message"]["content"].strip()
             if not content:
                 raise ValueError("No content from OpenAI API")
-            queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))[:7]
-            return queries, prompt
+            queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))
         except Exception as e:
             print(f"Error generating queries: {e}")
-            # Enhanced fallback queries
-            company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
-            roles_or = " OR ".join([f'\"{role}\"' for role in params.roles]) if params.roles else f'\"{params.seniority}\"'
-            keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
-            exclude_terms = " OR ".join([f'\"{kw}\"' for kw in params.excludeKeywords]) if params.excludeKeywords else ""
-            
-            fallback = [
-                f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed" OR "formerly at") AND ({roles_or})',
-                f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ({roles_or})',
-                f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead" OR "Principal" OR "Staff") AND ("quit" OR "resigned" OR "stepped down")',
-                f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "SDE" OR "Developer" OR "Programmer") AND ("recently at" OR "left in 2024")',
-                f'site:linkedin.com/in ({company_or}) AND ("Product Manager" OR "PM" OR "Engineering Manager" OR "EM") AND ("resigned from" OR "quit" OR "moved on")',
-                f'site:linkedin.com/in ({company_or}) AND ("Tech Lead" OR "Architect" OR "Principal Engineer") AND ("ex" OR "left" OR "departed")',
-                f'site:linkedin.com/in ({company_or}) AND ("Data Scientist" OR "ML Engineer" OR "AI Engineer") AND ("formerly at" OR "past")',
-                f'site:linkedin.com/in ({company_or}) AND ("Designer" OR "UX Designer" OR "UI Designer") AND ("no longer at" OR "ended at")',
-                f'site:linkedin.com/in ({company_or}) AND ("Director" OR "VP" OR "Head of") AND ("retired from" OR "stepped down from")',
-                f'site:linkedin.com/in ({company_or}) AND ("joined" OR "now at" OR "started at") AND ("{params.geography}" OR "{keywords_or}")',
-            ]
-            
-            # Add keyword filters if specified
-            if keywords_or:
-                fallback = [f"{q} AND ({keywords_or})" for q in fallback]
-            if exclude_terms:
-                fallback = [f"{q} AND -({exclude_terms})" for q in fallback]
-                
-            if after and before:
-                fallback = [f"{q} after:{after} before:{before}" for q in fallback]
-            return fallback[:10], prompt
-    
-    # Final fallback: return enhanced hand-crafted queries
-    company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
-    roles_or = " OR ".join([f'\"{role}\"' for role in params.roles]) if params.roles else f'\"{params.seniority}\"'
-    keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
-    exclude_terms = " OR ".join([f'\"{kw}\"' for kw in params.excludeKeywords]) if params.excludeKeywords else ""
-    
-    fallback = [
-        f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed" OR "formerly at") AND ({roles_or})',
-        f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ({roles_or})',
-        f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead" OR "Principal" OR "Staff") AND ("quit" OR "resigned" OR "stepped down")',
-        f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "SDE" OR "Developer" OR "Programmer") AND ("recently at" OR "left in 2024")',
-        f'site:linkedin.com/in ({company_or}) AND ("Product Manager" OR "PM" OR "Engineering Manager" OR "EM") AND ("resigned from" OR "quit" OR "moved on")',
-        f'site:linkedin.com/in ({company_or}) AND ("Tech Lead" OR "Architect" OR "Principal Engineer") AND ("ex" OR "left" OR "departed")',
-        f'site:linkedin.com/in ({company_or}) AND ("Data Scientist" OR "ML Engineer" OR "AI Engineer") AND ("formerly at" OR "past")',
-        f'site:linkedin.com/in ({company_or}) AND ("Designer" OR "UX Designer" OR "UI Designer") AND ("no longer at" OR "ended at")',
-        f'site:linkedin.com/in ({company_or}) AND ("Director" OR "VP" OR "Head of") AND ("retired from" OR "stepped down from")',
-        f'site:linkedin.com/in ({company_or}) AND ("joined" OR "now at" OR "started at") AND ("{params.geography}" OR "{keywords_or}")',
-    ]
-    
-    # Add keyword filters if specified
-    if keywords_or:
-        fallback = [f"{q} AND ({keywords_or})" for q in fallback]
-    if exclude_terms:
-        fallback = [f"{q} AND -({exclude_terms})" for q in fallback]
-        
-    if after and before:
-        fallback = [f"{q} after:{after} before:{before}" for q in fallback]
-    return fallback[:10], prompt
+            queries = []
+    # --- Fallback if OpenAI fails or returns too few queries ---
+    if not queries or len(queries) < 7:
+        company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
+        roles_or = " OR ".join([f'\"{role}\"' for role in expanded_roles]) if expanded_roles else f'\"{params.seniority}\"'
+        keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
+        exclude_terms = " OR ".join([f'\"{kw}\"' for kw in params.excludeKeywords]) if params.excludeKeywords else ""
+        fallback = [
+            f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed" OR "formerly at") AND ({roles_or})',
+            f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ({roles_or})',
+            f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead" OR "Principal" OR "Staff") AND ("quit" OR "resigned" OR "stepped down")',
+            f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "SDE" OR "Developer" OR "Programmer") AND ("recently at" OR "left in 2024")',
+            f'site:linkedin.com/in ({company_or}) AND ("Product Manager" OR "PM" OR "Engineering Manager" OR "EM") AND ("resigned from" OR "quit" OR "moved on")',
+            f'site:linkedin.com/in ({company_or}) AND ("Tech Lead" OR "Architect" OR "Principal Engineer") AND ("ex" OR "left" OR "departed")',
+            f'site:linkedin.com/in ({company_or}) AND ("Data Scientist" OR "ML Engineer" OR "AI Engineer") AND ("formerly at" OR "past")',
+            f'site:linkedin.com/in ({company_or}) AND ("Designer" OR "UX Designer" OR "UI Designer") AND ("no longer at" OR "ended at")',
+            f'site:linkedin.com/in ({company_or}) AND ("Director" OR "VP" OR "Head of") AND ("retired from" OR "stepped down from")',
+            f'site:linkedin.com/in ({company_or}) AND ("joined" OR "now at" OR "started at") AND ("{params.geography}" OR "{keywords_or}")',
+        ]
+        if keywords_or:
+            fallback = [f"{q} AND ({keywords_or})" for q in fallback]
+        if exclude_terms:
+            fallback = [f"{q} AND -({exclude_terms})" for q in fallback]
+        if after and before:
+            fallback = [f"{q} after:{after} before:{before}" for q in fallback]
+        queries = fallback
+    # --- Ensure exactly 7 queries ---
+    queries = [q for q in queries if q][:7]
+    while len(queries) < 7:
+        # Pad with smart variants if needed
+        pad_query = f'site:linkedin.com/in ("{params.company}") AND ("{expanded_roles[0] if expanded_roles else params.seniority}") AND ("ex" OR "former")'
+        if pad_query not in queries:
+            queries.append(pad_query)
+        else:
+            queries.append(f'{pad_query} {len(queries)+1}')
+    return queries, prompt
 
 def search_google_custom(query: str, num_results: int = 15, quit_window: str = "") -> List[dict]:
     """Enhanced search using Google Custom Search API with more results and better filtering"""
@@ -306,7 +309,7 @@ def search_google_custom(query: str, num_results: int = 15, quit_window: str = "
         return []
 
 def search_serpapi(query: str, num_results: int = 10) -> List[dict]:
-    """Search using SerpAPI"""
+    """Search using SerpAPI with robust error handling."""
     if not SERPAPI_KEY:
         return []
     try:
@@ -315,9 +318,11 @@ def search_serpapi(query: str, num_results: int = 10) -> List[dict]:
             "api_key": SERPAPI_KEY,
             "engine": "google",
             "q": query,
-            "num": num_results
+            "num": num_results,
+            "hl": "en",
+            "gl": "us",
         }
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=20)
         response.raise_for_status()
         data = response.json()
         results = []
@@ -326,7 +331,8 @@ def search_serpapi(query: str, num_results: int = 10) -> List[dict]:
                 "title": item.get("title", ""),
                 "link": item.get("link", ""),
                 "snippet": item.get("snippet", ""),
-                "displayLink": item.get("displayed_link", "")
+                "displayLink": item.get("displayed_link", ""),
+                "pagemap": item.get("rich_snippet", {}),
             })
         return results
     except Exception as e:
@@ -912,6 +918,14 @@ def split_roles(roles):
     for r in roles:
         split += [s.strip() for s in re.split(r'[ ,;]+', r) if s.strip()]
     return list(set(split))
+
+def split_terms(field):
+    """Split a string field on spaces, commas, or semicolons, and deduplicate."""
+    if not field:
+        return []
+    if isinstance(field, list):
+        field = ' '.join(field)
+    return list(set([s.strip() for s in re.split(r'[ ,;]+', field) if s.strip()]))
 
 # --- Helper: Fuzzy match role ---
 def is_similar_role(query, role, threshold=60):  # Lowered threshold for less strict matching
