@@ -56,6 +56,11 @@ function App() {
   const [lastUsedPrompt, setLastUsedPrompt] = useState("")
   const [formErrors, setFormErrors] = useState<{ [key: string]: boolean }>({})
 
+  // Add new state for raw input strings
+  const [rolesInput, setRolesInput] = useState("");
+  const [includeKeywordsInput, setIncludeKeywordsInput] = useState("");
+  const [excludeKeywordsInput, setExcludeKeywordsInput] = useState("");
+
   const TEST_CASES = [
     {
       label: "Stripe (Senior Engineer, Bay Area)",
@@ -157,93 +162,89 @@ function App() {
 
   // Helper to parse comma-separated input into array
   const parseCommaList = (input: string) => input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
-  // Helper to parse input on spaces, commas, or semicolons
+  // Helper to split on spaces, commas, or semicolons
   const parseMultiList = (input: string) => input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
 
+  // Update handleGenerateQueries to split inputs before sending
   const handleGenerateQueries = async () => {
     if (!validateForm()) {
-      setError("Please fill in all required fields")
-      return
+      setError("Please fill in all required fields");
+      return;
     }
-
-    setIsGenerating(true)
-    setError("")
-
+    setIsGenerating(true);
+    setError("");
     try {
       const payload = {
         ...searchParams,
-        roles: searchParams.roles,
-        includeKeywords: searchParams.includeKeywords,
-        excludeKeywords: searchParams.excludeKeywords,
-      }
+        roles: parseMultiList(rolesInput),
+        includeKeywords: parseMultiList(includeKeywordsInput),
+        excludeKeywords: parseMultiList(excludeKeywordsInput),
+      };
       const response = await fetch(`${API_BASE_URL}/generate-queries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      })
-
+      });
       if (!response.ok) {
-        throw new Error("Failed to generate queries")
+        throw new Error("Failed to generate queries");
       }
-
-      const data = await response.json()
-      setGeneratedQueries(data.queries)
-      setLastUsedPrompt(data.prompt)
-
+      const data = await response.json();
+      setGeneratedQueries(data.queries);
+      setLastUsedPrompt(data.prompt);
       // Add to audit log
       const auditEntry: AuditEntry = {
         timestamp: new Date().toISOString(),
         prompt: data.prompt,
         queries: data.queries,
         resultsCount: 0,
-      }
-      setAuditLog((prev) => [auditEntry, ...prev])
+      };
+      setAuditLog((prev) => [auditEntry, ...prev]);
     } catch (error) {
-      setError("Failed to generate queries. Please try again.")
-      console.error("Query generation error:", error)
+      setError("Failed to generate queries. Please try again.");
+      console.error("Query generation error:", error);
     } finally {
-      setIsGenerating(false)
+      setIsGenerating(false);
     }
-  }
+  };
 
+  // Update handleSearch to split inputs before sending
   const handleSearch = async () => {
     if (generatedQueries.length === 0) {
-      setError("Please generate queries first")
-      return
+      setError("Please generate queries first");
+      return;
     }
-    setIsSearching(true)
-    setError("")
+    setIsSearching(true);
+    setError("");
     try {
       const payload = {
         queries: generatedQueries,
         searchParams: {
           ...searchParams,
-          roles: searchParams.roles,
-          includeKeywords: searchParams.includeKeywords,
-          excludeKeywords: searchParams.excludeKeywords,
+          roles: parseMultiList(rolesInput),
+          includeKeywords: parseMultiList(includeKeywordsInput),
+          excludeKeywords: parseMultiList(excludeKeywordsInput),
         },
-      }
-      // Use /search endpoint to match backend
+      };
       const response = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      })
+      });
       if (!response.ok) {
-        throw new Error("Failed to execute search")
+        throw new Error("Failed to execute search");
       }
-      const data = await response.json()
-      setResults(data.results)
+      const data = await response.json();
+      setResults(data.results);
       setAuditLog((prev) =>
         prev.map((entry, index) => (index === 0 ? { ...entry, resultsCount: data.results.length } : entry)),
-      )
+      );
     } catch (error) {
-      setError("Failed to execute search. Please try again.")
-      console.error("Search error:", error)
+      setError("Failed to execute search. Please try again.");
+      console.error("Search error:", error);
     } finally {
-      setIsSearching(false)
+      setIsSearching(false);
     }
-  }
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -405,13 +406,8 @@ function App() {
                 type="text"
                 placeholder="e.g., Senior Engineer Product Manager"
                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors.roles ? "border-red-500 bg-red-50" : "border-gray-300"}`}
-                value={searchParams.roles.join(" ")}
-                onChange={e => {
-                  setSearchParams(prev => ({ ...prev, roles: parseMultiList(e.target.value) }))
-                  if (formErrors.roles && e.target.value.trim()) {
-                    setFormErrors(prev => ({ ...prev, roles: false }))
-                  }
-                }}
+                value={rolesInput}
+                onChange={e => setRolesInput(e.target.value)}
               />
               {formErrors.roles && <p className="text-red-500 text-xs mt-1">Role(s) are required</p>}
             </div>
@@ -479,8 +475,8 @@ function App() {
                 type="text"
                 placeholder="e.g., AI ML cloud"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={searchParams.includeKeywords.join(" ")}
-                onChange={e => setSearchParams(prev => ({ ...prev, includeKeywords: parseMultiList(e.target.value) }))}
+                value={includeKeywordsInput}
+                onChange={e => setIncludeKeywordsInput(e.target.value)}
               />
             </div>
 
@@ -491,8 +487,8 @@ function App() {
                 type="text"
                 placeholder="e.g., intern junior"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={searchParams.excludeKeywords.join(" ")}
-                onChange={e => setSearchParams(prev => ({ ...prev, excludeKeywords: parseMultiList(e.target.value) }))}
+                value={excludeKeywordsInput}
+                onChange={e => setExcludeKeywordsInput(e.target.value)}
               />
             </div>
           </div>
