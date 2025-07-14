@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@types/node": "^24.0.12",
+    "@types/react": "^19.1.8",
+    "lucide-react": "^0.525.0"
+  },
+  "devDependencies": {
+    "terser-webpack-plugin": "^5.3.14"
+  }
+}
