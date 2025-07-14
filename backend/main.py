@@ -197,42 +197,55 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     if not expanded_roles and params.seniority:
         expanded_roles = [params.seniority]
 
-    # --- Updated QueryGen prompt for 8 queries ---
-    model = get_best_openai_model() if OPENAI_API_KEY else None
+    # --- Use GPT-4 Turbo and the exact user-provided prompt for 9 queries ---
+    model = "gpt-4-turbo"  # Use GPT-4 Turbo explicitly
+    # If gpt-4-turbo is not available, fallback to gpt-4-0125-preview or gpt-4
+    try:
+        openai.Model.retrieve(model)
+    except Exception:
+        try:
+            model = "gpt-4-0125-preview"
+            openai.Model.retrieve(model)
+        except Exception:
+            model = "gpt-4"
+
     system_prompt = (
-        "You are QueryGen, an elite AI assistant for venture capital analysts. Your job is to generate 8 production-ready, high-precision Google X-ray queries to help identify **ex-employees** (e.g., senior engineers) who recently left a company — even if they haven’t updated LinkedIn.\n\n"
-        "Your output must:\n"
-        "1. **Target LinkedIn only** (`site:linkedin.com/in`)\n"
-        "2. Use **fuzzy, expanded role phrasing**: infer and include common variants, synonyms, and internal titles for the given roles.\n"
-        "   - Example: if input is \"engineer\", include \"developer\", \"SWE\", \"SDE\", \"software engineer\", \"technical lead\", etc.\n"
-        "   - Accept `;` as a delimiter and split on it.\n"
-        "3. Handle people who haven’t updated their status: use phrasings like:\n"
-        "   - \"currently at Company\" + recency keywords (e.g., \"as of 2024\")\n"
-        "   - \"worked at Company\" / \"tenure at Company\"\n"
-        "   - \"former\" / \"ex-\" / \"left\" / \"resigned\" / \"was at\"\n"
-        "4. Expand seniority levels (e.g., \"Senior\" → \"Senior\" OR \"Lead\" OR \"Principal\")\n"
-        "5. Expand the `quit_window` into natural time-related terms, e.g., \"in 2024\", \"past few months\", \"recently\", or leave it out if `quit_window` is `0`\n"
-        "6. Incorporate include/exclude keywords and geography accurately.\n"
-        "7. Return **exactly 8 raw, one-line Google queries** — ready to paste into Google. No commentary, no extra formatting.\n\n"
-        "Input will be a JSON with:\n"
-        "- `company`: string\n"
-        "- `roles`: string, semicolon-delimited (e.g. \"engineer;software engineer\")\n"
-        "- `seniority`: string (e.g. \"Senior\")\n"
-        "- `quit_window`: string or \"0\" if unknown\n"
-        "- `geography`: string\n"
-        "- `include_keywords`: list of keywords (optional)\n"
-        "- `exclude_keywords`: list of keywords to exclude (optional)\n\n"
-        "Return 8 distinct Google queries."
+        "You are a world-class AI assistant trained to help top-tier venture capital analysts surface promising ex-employees of high-growth companies using powerful Google X-ray search queries.\n\n"
+        "Your job is to generate 9 **high-quality**, **diverse**, and **realistic** search queries that return relevant **LinkedIn profiles** of individuals who have recently left a given company and held roles similar to the ones provided.\n\n"
+        "---\n\n"
+        "### You MUST:\n"
+        "- Start every query with: `site:linkedin.com/in`\n"
+        "- Use **natural phrasings** like:\n"
+        "  - \"ex-Company\", \"former Company\", \"previously at Company\", \"left Company\", \"was at Company\", \"Company alumni\"\n"
+        "- Expand the `Role` field to **real-world job title synonyms**, using a smart internal dictionary (e.g., “engineer” → “SWE”, “SDE”, “developer”, “software engineer”, “backend engineer”)\n"
+        "- If the role is vague (e.g., \"growth\"), cover possible actual titles (\"growth lead\", \"performance marketer\", \"growth PM\")\n"
+        "- Include optional **seniority**, **keywords**, and **locations** in a realistic way\n"
+        "- Exclude unwanted profiles by using terms like `-\"intern\"` or `-\"contractor\"` where needed\n"
+        "- Vary the structure and phrasing across all 9 queries to **maximize result diversity**\n"
+        "- Avoid over-nesting parentheses and using `intitle:` or other restrictive operators\n\n"
+        "---\n\n"
+        "### Input Variables:\n"
+        "- `Company`: [Insert company name]  \n"
+        "- `Role`: [Insert one or more functional roles]  \n"
+        "- `Seniority`: [Optional; e.g., junior, senior, lead, staff]  \n"
+        "- `Quit Window`: [Human-readable; e.g., \"past 6 months\", \"left in 2024\"]  \n"
+        "- `Location`: [Optional geography; e.g., United States, India, remote]  \n"
+        "- `Include Keywords`: [Any topical focus; e.g., \"AI\", \"fintech\", \"payments\"]  \n"
+        "- `Exclude Keywords`: [Optional; e.g., \"intern\", \"contractor\"]\n\n"
+        "---\n\n"
+        "### Output Format:\n"
+        "Return exactly **9 queries**, one per line, with NO explanation or extra characters. Each should be a valid and clean Google query that is likely to return relevant LinkedIn results.\n\n"
+        "Use smart variations across the 9 queries to improve coverage. Ensure each line is standalone.\n"
     )
 
     user_json = {
-        "company": params.company,
-        "roles": ";".join(expanded_roles) if expanded_roles else "",
-        "seniority": params.seniority,
-        "quit_window": params.quitWindow,
-        "geography": params.geography,
-        "include_keywords": params.includeKeywords,
-        "exclude_keywords": params.excludeKeywords,
+        "Company": params.company,
+        "Role": ";".join(expanded_roles) if expanded_roles else "",
+        "Seniority": params.seniority,
+        "Quit Window": params.quitWindow,
+        "Location": params.geography,
+        "Include Keywords": params.includeKeywords,
+        "Exclude Keywords": params.excludeKeywords,
     }
     user_prompt = json.dumps(user_json, ensure_ascii=False)
     prompt = user_prompt
@@ -244,7 +257,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
                 model=model,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.0,
-                max_tokens=1500
+                max_tokens=1800
             )
             content = None
             if isinstance(response, dict) and "choices" in response and isinstance(response["choices"], list):
@@ -257,22 +270,21 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
             print(f"Error generating queries: {e}")
             queries = []
     # --- Fallback if OpenAI fails or returns too few queries ---
-    if not queries or len(queries) < 8:
+    if not queries or len(queries) < 9:
         company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
         roles_or = " OR ".join([f'\"{role}\"' for role in expanded_roles]) if expanded_roles else f'\"{params.seniority}\"'
         keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
         exclude_terms = " OR ".join([f'\"{kw}\"' for kw in params.excludeKeywords]) if params.excludeKeywords else ""
         fallback = [
-            f'site:linkedin.com/in ({company_or}) AND ("ex" OR "former" OR "left" OR "departed" OR "formerly at") AND ({roles_or})',
-            f'site:linkedin.com/in ({company_or}) AND ("previously at" OR "until {params.quitWindow}" OR "left in {params.quitWindow}") AND ({roles_or})',
-            f'site:linkedin.com/in ({company_or}) AND ("Senior" OR "Lead" OR "Principal" OR "Staff") AND ("quit" OR "resigned" OR "stepped down")',
-            f'site:linkedin.com/in ({company_or}) AND ("Software Engineer" OR "SDE" OR "Developer" OR "Programmer") AND ("recently at" OR "left in 2024")',
-            f'site:linkedin.com/in ({company_or}) AND ("Product Manager" OR "PM" OR "Engineering Manager" OR "EM") AND ("resigned from" OR "quit" OR "moved on")',
-            f'site:linkedin.com/in ({company_or}) AND ("Tech Lead" OR "Architect" OR "Principal Engineer") AND ("ex" OR "left" OR "departed")',
-            f'site:linkedin.com/in ({company_or}) AND ("Data Scientist" OR "ML Engineer" OR "AI Engineer") AND ("formerly at" OR "past")',
-            f'site:linkedin.com/in ({company_or}) AND ("Designer" OR "UX Designer" OR "UI Designer") AND ("no longer at" OR "ended at")',
-            f'site:linkedin.com/in ({company_or}) AND ("Director" OR "VP" OR "Head of") AND ("retired from" OR "stepped down from")',
-            f'site:linkedin.com/in ({company_or}) AND ("joined" OR "now at" OR "started at") AND ("{params.geography}" OR "{keywords_or}")',
+            f'site:linkedin.com/in ("ex-" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("former" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("previously at" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("left" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("was at" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("{params.company} alumni") AND ({roles_or})',
+            f'site:linkedin.com/in ("resigned from" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("departed" {company_or}) AND ({roles_or})',
+            f'site:linkedin.com/in ("quit" {company_or}) AND ({roles_or})',
         ]
         if keywords_or:
             fallback = [f"{q} AND ({keywords_or})" for q in fallback]
@@ -281,10 +293,9 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
         if after and before:
             fallback = [f"{q} after:{after} before:{before}" for q in fallback]
         queries = fallback
-    # --- Ensure exactly 8 queries ---
-    queries = [q for q in queries if q][:8]
-    while len(queries) < 8:
-        # Pad with smart variants if needed
+    # --- Ensure exactly 9 queries ---
+    queries = [q for q in queries if q][:9]
+    while len(queries) < 9:
         queries.append(queries[-1] if queries else "site:linkedin.com/in")
     return queries, prompt
 
