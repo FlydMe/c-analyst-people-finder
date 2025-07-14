@@ -157,6 +157,8 @@ function App() {
 
   // Helper to parse comma-separated input into array
   const parseCommaList = (input: string) => input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+  // Helper to parse input on spaces, commas, or semicolons
+  const parseMultiList = (input: string) => input.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
 
   const handleGenerateQueries = async () => {
     if (!validateForm()) {
@@ -401,11 +403,11 @@ function App() {
               </label>
               <input
                 type="text"
-                placeholder="e.g., Senior Engineer, Product Manager"
+                placeholder="e.g., Senior Engineer Product Manager"
                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors.roles ? "border-red-500 bg-red-50" : "border-gray-300"}`}
-                value={searchParams.roles.join(", ")}
+                value={searchParams.roles.join(" ")}
                 onChange={e => {
-                  setSearchParams(prev => ({ ...prev, roles: parseCommaList(e.target.value) }))
+                  setSearchParams(prev => ({ ...prev, roles: parseMultiList(e.target.value) }))
                   if (formErrors.roles && e.target.value.trim()) {
                     setFormErrors(prev => ({ ...prev, roles: false }))
                   }
@@ -473,24 +475,24 @@ function App() {
             {/* Include Keywords */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Include Keywords</label>
-              <textarea
-                placeholder="e.g., AI, ML, cloud"
-                rows={3}
+              <input
+                type="text"
+                placeholder="e.g., AI ML cloud"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={searchParams.includeKeywords.join(", ")}
-                onChange={e => setSearchParams(prev => ({ ...prev, includeKeywords: parseCommaList(e.target.value) }))}
+                value={searchParams.includeKeywords.join(" ")}
+                onChange={e => setSearchParams(prev => ({ ...prev, includeKeywords: parseMultiList(e.target.value) }))}
               />
             </div>
 
             {/* Exclude Keywords */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Exclude Keywords</label>
-              <textarea
-                placeholder="e.g., intern, junior"
-                rows={3}
+              <input
+                type="text"
+                placeholder="e.g., intern junior"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={searchParams.excludeKeywords.join(", ")}
-                onChange={e => setSearchParams(prev => ({ ...prev, excludeKeywords: parseCommaList(e.target.value) }))}
+                value={searchParams.excludeKeywords.join(" ")}
+                onChange={e => setSearchParams(prev => ({ ...prev, excludeKeywords: parseMultiList(e.target.value) }))}
               />
             </div>
           </div>
