@@ -113,15 +113,43 @@ class QueryRequest(BaseModel):
     sources: Optional[List[str]] = None  # New: for explicit override
 
 def get_role_variants(role):
-    """Return a list of common variants/synonyms for a given role."""
+    """Return a list of common LinkedIn variants/synonyms for a given role using ChatGPT if available, else fallback to static dictionary."""
     role = role.lower().strip()
+    # Try dynamic expansion with ChatGPT
+    if OPENAI_API_KEY:
+        try:
+            prompt = (
+                f"List the most common LinkedIn job titles, synonyms, and abbreviations for the role '{role}'. "
+                "Focus on real LinkedIn nomenclature, including abbreviations, internal titles, and common variants. "
+                "Return a comma-separated list, no commentary."
+            )
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=256
+            )
+            content = None
+            if isinstance(response, dict) and "choices" in response and isinstance(response["choices"], list):
+                first_choice = response["choices"][0]
+                if isinstance(first_choice, dict) and "message" in first_choice and "content" in first_choice["message"]:
+                    content = first_choice["message"]["content"].strip()
+            if content:
+                # Parse comma-separated list
+                variants = [v.strip() for v in content.split(",") if v.strip()]
+                if role not in variants:
+                    variants.append(role)
+                return list(set(variants))
+        except Exception as e:
+            print(f"ChatGPT role expansion failed for '{role}': {e}")
+    # Fallback to static dictionary
     variants = {
-        "engineer": ["engineer", "software engineer", "developer", "swe", "sde", "technical lead", "programmer", "coder", "dev"],
-        "product manager": ["product manager", "pm", "product owner", "product lead", "product director"],
-        "designer": ["designer", "ux designer", "ui designer", "product designer", "visual designer"],
-        "data scientist": ["data scientist", "ml engineer", "ai engineer", "machine learning engineer", "data analyst"],
-        "manager": ["manager", "engineering manager", "team lead", "lead", "supervisor"],
-        "director": ["director", "head of", "vp", "vice president", "chief", "cto", "ceo"],
+        "engineer": ["engineer", "software engineer", "developer", "swe", "sde", "technical lead", "programmer", "coder", "dev", "full stack engineer", "frontend engineer", "backend engineer", "systems engineer", "platform engineer", "infrastructure engineer", "site reliability engineer", "sre", "qa engineer", "test engineer", "embedded engineer", "mobile engineer", "ios engineer", "android engineer", "web developer", "application engineer", "cloud engineer", "data engineer", "ml engineer", "ai engineer", "machine learning engineer", "deep learning engineer", "automation engineer", "release engineer", "build engineer", "integration engineer", "support engineer", "network engineer", "security engineer", "devops engineer", "blockchain engineer", "game developer", "game engineer", "graphics engineer", "simulation engineer", "hardware engineer", "firmware engineer", "solutions engineer", "consulting engineer", "principal engineer", "lead engineer", "senior engineer", "junior engineer", "associate engineer", "entry level engineer", "graduate engineer", "intern engineer"],
+        "product manager": ["product manager", "pm", "product owner", "product lead", "product director", "group product manager", "senior product manager", "associate product manager", "apm", "principal product manager", "vp product", "head of product", "product strategist", "product analyst", "product specialist", "product coordinator", "product consultant"],
+        "designer": ["designer", "ux designer", "ui designer", "product designer", "visual designer", "interaction designer", "graphic designer", "web designer", "motion designer", "creative director", "art director", "ux researcher", "ux architect", "ux strategist", "ux writer", "service designer", "experience designer", "industrial designer", "brand designer", "senior designer", "junior designer", "lead designer", "principal designer", "design manager", "design director", "head of design"],
+        "data scientist": ["data scientist", "ml engineer", "ai engineer", "machine learning engineer", "data analyst", "data engineer", "research scientist", "applied scientist", "statistician", "quantitative analyst", "quant", "business intelligence analyst", "bi analyst", "analytics engineer", "senior data scientist", "junior data scientist", "lead data scientist", "principal data scientist", "chief data scientist"],
+        "manager": ["manager", "engineering manager", "team lead", "lead", "supervisor", "project manager", "scrum master", "agile coach", "program manager", "delivery manager", "development manager", "product manager", "operations manager", "support manager", "qa manager", "test manager", "release manager", "build manager", "integration manager", "network manager", "security manager", "devops manager", "senior manager", "junior manager", "associate manager", "principal manager", "director", "head of"],
+        "director": ["director", "head of", "vp", "vice president", "chief", "cto", "ceo", "cpo", "coo", "cfo", "cio", "ciso", "founder", "co-founder", "managing director", "executive director", "board member", "chairman", "president", "senior director", "associate director", "principal director", "lead director", "managing partner", "general manager", "country manager", "regional manager", "area manager", "business unit manager"],
         # Add more as needed
     }
     for key, vals in variants.items():
