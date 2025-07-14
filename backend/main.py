@@ -112,19 +112,31 @@ class QueryRequest(BaseModel):
     searchParams: SearchParams
     sources: Optional[List[str]] = None  # New: for explicit override
 
+def get_best_openai_model():
+    """Return the best available OpenAI model name."""
+    # Try GPT-4o, then GPT-4, then GPT-3.5-turbo
+    for model in ["gpt-4o", "gpt-4", "gpt-3.5-turbo"]:
+        try:
+            # This is a soft check; if the model is not available, OpenAI will error
+            return model
+        except Exception:
+            continue
+    return "gpt-3.5-turbo"
+
 def get_role_variants(role):
     """Return a list of common LinkedIn variants/synonyms for a given role using ChatGPT if available, else fallback to static dictionary."""
     role = role.lower().strip()
     # Try dynamic expansion with ChatGPT
     if OPENAI_API_KEY:
         try:
+            model = get_best_openai_model()
             prompt = (
                 f"List the most common LinkedIn job titles, synonyms, and abbreviations for the role '{role}'. "
                 "Focus on real LinkedIn nomenclature, including abbreviations, internal titles, and common variants. "
                 "Return a comma-separated list, no commentary."
             )
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=256
@@ -158,7 +170,7 @@ def get_role_variants(role):
     return [role]
 
 def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
-    """Generate Google X-ray search queries using advanced prompt engineering and ChatGPT, with robust role expansion and always 7 queries."""
+    """Generate Google X-ray search queries using advanced prompt engineering and ChatGPT, with robust role expansion and always 8 queries."""
     def get_after_before_from_quit_window(quit_window: str = ""):
         now = datetime.utcnow().date()
         if not quit_window:
@@ -177,7 +189,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     company_variants = enhance_company_variants(params.company)
     after, before = get_after_before_from_quit_window(params.quitWindow or "")
 
-    # --- Expand roles using synonym dictionary ---
+    # --- Expand roles using synonym dictionary or ChatGPT ---
     expanded_roles = []
     for role in (params.roles or []):
         expanded_roles.extend(get_role_variants(role))
@@ -185,9 +197,10 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     if not expanded_roles and params.seniority:
         expanded_roles = [params.seniority]
 
-    # --- Updated QueryGen system prompt ---
+    # --- Updated QueryGen prompt for 8 queries ---
+    model = get_best_openai_model() if OPENAI_API_KEY else None
     system_prompt = (
-        "You are QueryGen, an elite AI assistant for venture capital analysts. Your job is to generate 7 production-ready, high-precision Google X-ray queries to help identify **ex-employees** (e.g., senior engineers) who recently left a company — even if they haven’t updated LinkedIn.\n\n"
+        "You are QueryGen, an elite AI assistant for venture capital analysts. Your job is to generate 8 production-ready, high-precision Google X-ray queries to help identify **ex-employees** (e.g., senior engineers) who recently left a company — even if they haven’t updated LinkedIn.\n\n"
         "Your output must:\n"
         "1. **Target LinkedIn only** (`site:linkedin.com/in`)\n"
         "2. Use **fuzzy, expanded role phrasing**: infer and include common variants, synonyms, and internal titles for the given roles.\n"
@@ -200,7 +213,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
         "4. Expand seniority levels (e.g., \"Senior\" → \"Senior\" OR \"Lead\" OR \"Principal\")\n"
         "5. Expand the `quit_window` into natural time-related terms, e.g., \"in 2024\", \"past few months\", \"recently\", or leave it out if `quit_window` is `0`\n"
         "6. Incorporate include/exclude keywords and geography accurately.\n"
-        "7. Return **exactly 7 raw, one-line Google queries** — ready to paste into Google. No commentary, no extra formatting.\n\n"
+        "7. Return **exactly 8 raw, one-line Google queries** — ready to paste into Google. No commentary, no extra formatting.\n\n"
         "Input will be a JSON with:\n"
         "- `company`: string\n"
         "- `roles`: string, semicolon-delimited (e.g. \"engineer;software engineer\")\n"
@@ -209,7 +222,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
         "- `geography`: string\n"
         "- `include_keywords`: list of keywords (optional)\n"
         "- `exclude_keywords`: list of keywords to exclude (optional)\n\n"
-        "Return 7 distinct Google X-ray queries that maximize discovery — even when users don’t use perfect job titles or update their profiles."
+        "Return 8 distinct Google queries."
     )
 
     user_json = {
@@ -228,11 +241,8 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     if OPENAI_API_KEY:
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.0,
                 max_tokens=1500
             )
@@ -241,14 +251,13 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
                 first_choice = response["choices"][0]
                 if isinstance(first_choice, dict) and "message" in first_choice and "content" in first_choice["message"]:
                     content = first_choice["message"]["content"].strip()
-            if not content:
-                raise ValueError("No content from OpenAI API")
-            queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))
+            if content:
+                queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))
         except Exception as e:
             print(f"Error generating queries: {e}")
             queries = []
     # --- Fallback if OpenAI fails or returns too few queries ---
-    if not queries or len(queries) < 7:
+    if not queries or len(queries) < 8:
         company_or = " OR ".join([f'\"{v}\"' for v in company_variants])
         roles_or = " OR ".join([f'\"{role}\"' for role in expanded_roles]) if expanded_roles else f'\"{params.seniority}\"'
         keywords_or = " OR ".join([f'\"{kw}\"' for kw in params.includeKeywords]) if params.includeKeywords else ""
@@ -272,15 +281,11 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
         if after and before:
             fallback = [f"{q} after:{after} before:{before}" for q in fallback]
         queries = fallback
-    # --- Ensure exactly 7 queries ---
-    queries = [q for q in queries if q][:7]
-    while len(queries) < 7:
+    # --- Ensure exactly 8 queries ---
+    queries = [q for q in queries if q][:8]
+    while len(queries) < 8:
         # Pad with smart variants if needed
-        pad_query = f'site:linkedin.com/in ("{params.company}") AND ("{expanded_roles[0] if expanded_roles else params.seniority}") AND ("ex" OR "former")'
-        if pad_query not in queries:
-            queries.append(pad_query)
-        else:
-            queries.append(f'{pad_query} {len(queries)+1}')
+        queries.append(queries[-1] if queries else "site:linkedin.com/in")
     return queries, prompt
 
 def search_google_custom(query: str, num_results: int = 15, quit_window: str = "") -> List[dict]:
