@@ -197,9 +197,8 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     if not expanded_roles and params.seniority:
         expanded_roles = [params.seniority]
 
-    # --- Use GPT-4 Turbo and the exact user-provided prompt for 9 queries ---
-    model = "gpt-4-turbo"  # Use GPT-4 Turbo explicitly
-    # If gpt-4-turbo is not available, fallback to gpt-4-0125-preview or gpt-4
+    # --- Use GPT-4 Turbo and a world-class prompt for 9 queries, with company match as non-negotiable ---
+    model = "gpt-4-turbo"
     try:
         openai.Model.retrieve(model)
     except Exception:
@@ -210,31 +209,33 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
             model = "gpt-4"
 
     system_prompt = (
-        "You are a world-class AI assistant trained to help top-tier venture capital analysts surface promising ex-employees of high-growth companies using powerful Google X-ray search queries.\n\n"
-        "Your job is to generate 9 **high-quality**, **diverse**, and **realistic** search queries that return relevant **LinkedIn profiles** of individuals who have recently left a given company and held roles similar to the ones provided.\n\n"
+        "You are a world-class AI assistant for top-tier venture capital analysts. Your job is to generate 9 high-quality, diverse, and realistic Google X-ray queries that return relevant LinkedIn profiles of individuals who have recently left a given company and held roles similar to the ones provided.\n\n"
         "---\n\n"
         "### You MUST:\n"
         "- Start every query with: `site:linkedin.com/in`\n"
-        "- Use **natural phrasings** like:\n"
-        "  - \"ex-Company\", \"former Company\", \"previously at Company\", \"left Company\", \"was at Company\", \"Company alumni\"\n"
-        "- Expand the `Role` field to **real-world job title synonyms**, using a smart internal dictionary (e.g., “engineer” → “SWE”, “SDE”, “developer”, “software engineer”, “backend engineer”)\n"
-        "- If the role is vague (e.g., \"growth\"), cover possible actual titles (\"growth lead\", \"performance marketer\", \"growth PM\")\n"
-        "- Include optional **seniority**, **keywords**, and **locations** in a realistic way\n"
-        "- Exclude unwanted profiles by using terms like `-\"intern\"` or `-\"contractor\"` where needed\n"
-        "- Vary the structure and phrasing across all 9 queries to **maximize result diversity**\n"
-        "- Avoid over-nesting parentheses and using `intitle:` or other restrictive operators\n\n"
+        "- The company must be a clear match: only ex-employees of the specified company.\n"
+        "- The role/job must be similar: use synonyms, fuzzy matching, and real-world LinkedIn job title variants.\n"
+        "- Use natural phrasings like: 'ex-Company', 'former Company', 'previously at Company', 'left Company', 'was at Company', 'Company alumni'.\n"
+        "- Expand the `Role` field to real-world job title synonyms (e.g., engineer → SWE, SDE, developer, software engineer, backend engineer).\n"
+        "- If the role is vague (e.g., 'growth'), cover possible actual titles ('growth lead', 'performance marketer', 'growth PM').\n"
+        "- Include optional seniority, keywords, and locations in a realistic way.\n"
+        "- Exclude unwanted profiles by using terms like -\"intern\" or -\"contractor\" where needed.\n"
+        "- Vary the structure and phrasing across all 9 queries to maximize result diversity.\n"
+        "- Avoid over-nesting parentheses and using intitle: or other restrictive operators.\n"
+        "- The quit window (e.g., 'past 2 years') is a preference for recency, but do NOT filter out results just because the quit date is ambiguous or missing.\n"
+        "- Never return zero queries. Always maximize coverage.\n\n"
         "---\n\n"
         "### Input Variables:\n"
-        "- `Company`: [Insert company name]  \n"
-        "- `Role`: [Insert one or more functional roles]  \n"
-        "- `Seniority`: [Optional; e.g., junior, senior, lead, staff]  \n"
-        "- `Quit Window`: [Human-readable; e.g., \"past 6 months\", \"left in 2024\"]  \n"
-        "- `Location`: [Optional geography; e.g., United States, India, remote]  \n"
-        "- `Include Keywords`: [Any topical focus; e.g., \"AI\", \"fintech\", \"payments\"]  \n"
-        "- `Exclude Keywords`: [Optional; e.g., \"intern\", \"contractor\"]\n\n"
+        "- Company: [Insert company name]\n"
+        "- Role: [Insert one or more functional roles]\n"
+        "- Seniority: [Optional; e.g., junior, senior, lead, staff]\n"
+        "- Quit Window: [Human-readable; e.g., 'past 2 years', 'left in 2024']\n"
+        "- Location: [Optional geography; e.g., United States, India, remote]\n"
+        "- Include Keywords: [Any topical focus; e.g., 'AI', 'fintech', 'payments']\n"
+        "- Exclude Keywords: [Optional; e.g., 'intern', 'contractor']\n\n"
         "---\n\n"
         "### Output Format:\n"
-        "Return exactly **9 queries**, one per line, with NO explanation or extra characters. Each should be a valid and clean Google query that is likely to return relevant LinkedIn results.\n\n"
+        "Return exactly 9 queries, one per line, with NO explanation or extra characters. Each should be a valid and clean Google query that is likely to return relevant LinkedIn results.\n\n"
         "Use smart variations across the 9 queries to improve coverage. Ensure each line is standalone.\n"
     )
 
@@ -1057,6 +1058,7 @@ async def search_endpoint(request: QueryRequest):
                 display_link = result.get("displayLink", "")
                 # --- Fuzzy/partial match for roles ---
                 content = (snippet + " " + title).lower()
+                # Use fuzzy/expanded role matching, not strict equality
                 if roles:
                     if not any(is_similar_role(role, content) for role in roles):
                         continue
@@ -1069,10 +1071,8 @@ async def search_endpoint(request: QueryRequest):
                     "/announcement", "/help", "/support", "/contact", "/legal", "/privacy", 
                     "/terms", "/cookie", "/sitemap", "/robots", "/ads", "/advertising"
                 ]
-                
                 if any(pattern in url.lower() for pattern in exclude_patterns):
                     continue
-                
                 # Enhanced profile link detection
                 profile_domains = [
                     "linkedin.com/in/",
@@ -1089,61 +1089,14 @@ async def search_endpoint(request: QueryRequest):
                     ".me/",
                     ".io/"
                 ]
-                
                 is_profile = any(domain in url.lower() for domain in profile_domains)
                 if not is_profile:
                     continue
-                # --- Extract transitions, quit date, and confidence ---
-                transitions = extract_all_transitions(snippet + " " + title, request.searchParams.company)
-                logger.info(f"Transitions for URL {url}: {transitions}")
-                inferred_quit_date_str = infer_quit_date_from_transitions(transitions, request.searchParams.company)
-                logger.info(f"Inferred quit date string for URL {url}: {inferred_quit_date_str}")
-                quit_date = parse_end_date(inferred_quit_date_str or "") if inferred_quit_date_str else None
-                quit_date_str = quit_date.strftime("%Y-%m-%d") if quit_date else None
-                logger.info(f"Parsed quit date for URL {url}: {quit_date_str}")
-                # Confidence: explicit > inferred > ambiguous
-                confidence = 1
-                explicit_types = [
-                    'left_in_month_year', 'left_in_year', 'until_month_year', 'until_year',
-                    'left', 'former', 'ex', 'departed', 'quit', 'resigned', 'no_longer', 'ended', 'retired', 'stepped_down', 'last_day', 'moved_on', 'transitioned', 'leaving', 'why_left'
-                ]
-                if any(t['type'] in explicit_types for t in transitions):
-                    confidence = 3
-                    logger.info(f"Explicit quit transition found for URL: {url}")
-                elif any(t['type'] in ['joined_new_month_year', 'joined_new_year', 'started_new_month_year', 'started_new_year', 'now_at'] for t in transitions):
-                    confidence = 2
-                    logger.info(f"Inferred quit from new job for URL: {url}")
-                else:
-                    logger.info(f"Ambiguous quit for URL: {url}")
-                # Scoring: keyword and source authority
-                keyword_hits = 0
-                weight = 2.0
-                for kw in (request.searchParams.includeKeywords or []):
-                    if kw.strip() and kw.strip().lower() in (snippet + " " + title).lower():
-                        keyword_hits += 1
-                # Add recency bonus if quit_date is within 1 year
-                recency_bonus = 0.0
-                if quit_date and is_within_quit_window_smart(quit_date, request.searchParams.quitWindow or ""):
-                    recency_bonus = 3.0
-                # Add recency bonus if quit_date is within 2 years
-                if quit_date and is_within_quit_window_smart(quit_date, request.searchParams.quitWindow or ""):
-                    recency_bonus = 1.5
-                score = (keyword_hits * 2.5) + recency_bonus
-                # Source authority boost
-                source = get_source_from_display_link(display_link)
-                source_boosts = {
-                    "linkedin": 4.0,
-                    "twitter": 2.0,
-                    "github": 1.0,
-                    "medium": 0.5,
-                    "wellfound": 1.0,
-                    "blog": 0.5,
-                    "other": 0.0
-                }
-                score += source_boosts.get(source, 0.0)
-                relevance_score = score
-                # Enhanced company mention validation with more comprehensive patterns
+                # --- Company match is non-negotiable: only exclude if company is NOT clearly mentioned as a past employer ---
+                content_lower = (snippet + " " + title).lower()
                 company = request.searchParams.company.lower()
+                has_company_mention = False
+                # Check for direct company mention patterns
                 company_mention_patterns = [
                     f"ex-{company}", f"ex {company}", f"former {company}",
                     f"formerly at {company}", f"previously at {company}", f"past {company}",
@@ -1154,10 +1107,8 @@ async def search_endpoint(request: QueryRequest):
                     f"transitioned from {company}", f"leaving {company}",
                     f"until {company}", f"at {company} until"
                 ]
-                
-                content_lower = (snippet + " " + title).lower()
-                has_company_mention = any(pattern in content_lower for pattern in company_mention_patterns)
-                
+                if any(pattern in content_lower for pattern in company_mention_patterns):
+                    has_company_mention = True
                 # Also check for company variants
                 company_variants = enhance_company_variants(request.searchParams.company)
                 for variant in company_variants:
@@ -1171,9 +1122,14 @@ async def search_endpoint(request: QueryRequest):
                     if any(pattern in content_lower for pattern in variant_patterns):
                         has_company_mention = True
                         break
-                
                 if not has_company_mention:
                     continue
+                # Do NOT filter out for ambiguous/missing quit date. Always include if company and role are similarish.
+                # Set safe defaults for removed fields
+                relevance_score = None
+                source = None
+                confidence = 1
+                transitions = None
                 # Extract name and quit date
                 name = extract_candidate_name(snippet, title)
                 quit_date = None
@@ -1189,7 +1145,7 @@ async def search_endpoint(request: QueryRequest):
                     "domain": display_link,
                     "link": url,
                     "relevanceScore": relevance_score,
-                    "source": source or None,
+                    "source": source,
                     "quitDate": quit_date_str,
                     "quitConfidence": confidence,
                     "transitions": transitions,
