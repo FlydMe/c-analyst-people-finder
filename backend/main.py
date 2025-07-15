@@ -197,16 +197,16 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     if not expanded_roles and params.seniority:
         expanded_roles = [params.seniority]
 
-    # --- Use GPT-4 Turbo and a world-class prompt for 9 queries, with company match as non-negotiable ---
-    model = "gpt-4-turbo"
+    # --- Use GPT-4o as the default model for 9 queries, with company match as non-negotiable ---
+    model = "gpt-4o"
     try:
         openai.Model.retrieve(model)
     except Exception:
         try:
-            model = "gpt-4-0125-preview"
+            model = "gpt-4-turbo"
             openai.Model.retrieve(model)
         except Exception:
-            model = "gpt-4"
+            model = "gpt-3.5-turbo"
 
     system_prompt = (
         "You are a world-class AI assistant for top-tier venture capital analysts. Your job is to generate 9 high-quality, diverse, and realistic Google X-ray queries that return relevant LinkedIn profiles of individuals who have recently left a given company and held roles similar to the ones provided.\n\n"
@@ -255,7 +255,9 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
     prompt = user_prompt
 
     queries = []
-    if OPENAI_API_KEY:
+    if not OPENAI_API_KEY:
+        print("[ERROR] OPENAI_API_KEY is not set. Cannot generate queries.")
+    else:
         try:
             response = openai.ChatCompletion.create(
                 model=model,
@@ -271,7 +273,7 @@ def generate_xray_queries(params: SearchParams) -> tuple[list[str], str]:
             if content:
                 queries = list(dict.fromkeys([line.strip() for line in content.splitlines() if line.strip()]))
         except Exception as e:
-            print(f"Error generating queries: {e}")
+            print(f"[ERROR] Error generating queries with OpenAI: {e}")
             queries = []
     # --- Fallback if OpenAI fails or returns too few queries ---
     if not queries or len(queries) < 9:
