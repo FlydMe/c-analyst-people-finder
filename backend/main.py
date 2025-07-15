@@ -356,37 +356,6 @@ def search_google_custom(query: str, num_results: int = 15, quit_window: str = "
         print(f"Error searching Google: {e}")
         return []
 
-def search_serpapi(query: str, num_results: int = 10) -> List[dict]:
-    """Search using SerpAPI with robust error handling."""
-    if not SERPAPI_KEY:
-        return []
-    try:
-        url = "https://serpapi.com/search"
-        params = {
-            "api_key": SERPAPI_KEY,
-            "engine": "google",
-            "q": query,
-            "num": num_results,
-            "hl": "en",
-            "gl": "us",
-        }
-        response = requests.get(url, params=params, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-        results = []
-        for item in data.get("organic_results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "link": item.get("link", ""),
-                "snippet": item.get("snippet", ""),
-                "displayLink": item.get("displayed_link", ""),
-                "pagemap": item.get("rich_snippet", {}),
-            })
-        return results
-    except Exception as e:
-        print(f"Error searching SerpAPI: {e}")
-        return []
-
 def mock_search_results(query: str) -> List[dict]:
     """Mock search results for development/demo (now disabled)"""
     return []
@@ -1046,21 +1015,9 @@ async def search_endpoint(request: QueryRequest):
         if not roles and request.searchParams.seniority:
             roles = split_roles([request.searchParams.seniority])
         for i, query in enumerate(request.queries):
-            # --- If SerpAPI is unavailable, route all queries to Google Custom Search ---
-            serpapi_results = []
-            if SERPAPI_KEY:
-                serpapi_results = search_serpapi(query)
-                # If SerpAPI returns no results (e.g., quota exceeded), fall back to Google
-                if not serpapi_results:
-                    serpapi_results = []
-                    google_results = search_google_custom(query, quit_window=str(request.searchParams.quitWindow or '')) if GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID else []
-                else:
-                    google_results = search_google_custom(query, quit_window=str(request.searchParams.quitWindow or '')) if GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID else []
-            else:
-                google_results = search_google_custom(query, quit_window=str(request.searchParams.quitWindow or '')) if GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID else []
-            # If SerpAPI is unavailable or empty, use Google results only
-            combined_results = serpapi_results + google_results if serpapi_results else google_results
-            logger.info(f"Combined results for query {i+1}: {len(combined_results)}")
+            google_results = search_google_custom(query, quit_window=str(request.searchParams.quitWindow or '')) if GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID else []
+            combined_results = google_results
+            logger.info(f"Google results for query {i+1}: {len(combined_results)}")
             for result in combined_results:
                 url = result.get("link", "")
                 if url in seen_urls or not url:
